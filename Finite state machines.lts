@@ -1,0 +1,52 @@
+ENTERING_SENSOR = ( enter -> ENTERING_SENSOR ).
+
+EXITING_SENSOR = ( exit -> EXITING_SENSOR ).
+
+GATE = UP,
+UP = ( lower -> DOWN | pass -> UP ),
+DOWN = ( raise -> UP ).
+
+const N  = 3 // number of enemies
+range ID = 1..N
+
+ENEMY = (enter->exit->ENEMY).
+
+MARTIN = (leave->enter->exit->MARTIN).
+
+// Purpose of the waiting indicator: stop Martin from entering when enemies are on the road
+WARNING = OFF,
+OFF = (enemy[ID].enter -> ON[1] | martin.enter->OFF),
+ON[i:ID] = ( when (i==1) enemy[ID].exit->OFF 
+		   | when (i<N)  enemy[ID].enter->ON[i+1]
+		   | when (i>1)  enemy[ID].exit->ON[i-1] ).
+
+/* Possible trace (without the NO_CRASH safety property):
+ martin.leave
+ martin.enter
+ enemy.1.enter */
+||UNSAFE_MARTIN = ( {enemy[ID]}::ENTERING_SENSOR || {enemy[ID]}::EXITING_SENSOR || GATE || enemy[ID]:ENEMY || 
+					martin:MARTIN || martin:ENTERING_SENSOR || martin:EXITING_SENSOR || WARNING )
+				/{ forall[i:ID] { enemy[i].enter/pass} }.
+
+/* Trace to property violation in NO_CRASH:
+ martin.leave
+ martin.enter
+ enemy.0.enter */
+property NO_CRASH = (martin.enter->MARTIN_ON_ROAD | enemy[ID].enter->ENEMY_ON_ROAD[1]),
+MARTIN_ON_ROAD = (martin.exit->NO_CRASH),
+ENEMY_ON_ROAD[i:ID]  = ( when (i==1) enemy[ID].exit->NO_CRASH 
+					   | when (i<N)  enemy[ID].enter->ENEMY_ON_ROAD[i+1] 
+					   | when (i>1)  enemy[ID].exit->ENEMY_ON_ROAD[i-1] ).
+
+// Purpose of the Controller: When Martin wants to enter, no enemies can enter.
+CONTROLLER = (enemy[ID].exit -> CONTROLLER | martin.leave -> lower -> REMOVE_ENEMIES),
+REMOVE_ENEMIES = (enemy[ID].exit -> REMOVE_ENEMIES | martin.enter -> MARTIN_ON_ROAD), // Martin won't enter until all enemies are gone
+MARTIN_ON_ROAD = (martin.exit -> (martin.leave -> martin.enter -> MARTIN_ON_ROAD | raise -> CONTROLLER)).
+
+||SAFE_MARTIN = (UNSAFE_MARTIN || CONTROLLER).
+
+||NO_CRASH_VERIFICATION = (SAFE_MARTIN || NO_CRASH).
+
+progress LIVE_MARTIN = {martin.exit}
+
+||SAFE_CONGESTED = SAFE_MARTIN >> {enemy[ID].exit}.
